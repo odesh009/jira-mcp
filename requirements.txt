@@ -1,0 +1,4 @@
+pytest
+mcp
+python-dotenv
+httpx

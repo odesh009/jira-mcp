@@ -1,13 +1,23 @@
 """Main MCP server implementation for Bitbucket."""
 
 import os
+import sys
+from pathlib import Path
 from typing import Any
 
+# Add parent directory to path for imports when running as script
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).parent))
+
+from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import AnyUrl
 
 from bitbucket_client import BitbucketClient
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 class BitbucketMCPServer:
@@ -613,3 +623,9 @@ class BitbucketMCPServer:
                 self.server.create_initialization_options(),
             )
 
+
+if __name__ == "__main__":
+    import asyncio
+    
+    server = BitbucketMCPServer()
+    asyncio.run(server.run())

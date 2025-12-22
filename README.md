@@ -67,6 +67,30 @@ pip install -e ".[dev]"
 
 ## Usage
 
+### Configure in Antigravity (or other MCP clients)
+
+Add this to your MCP configuration file (e.g., `~/.gemini/antigravity/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "bitbucket-mcp": {
+      "command": "/path/to/your/project/.venv/bin/python",
+      "args": [
+        "/path/to/your/project/src/server.py"
+      ],
+      "env": {
+        "MCP_MODE": "stdio"
+      }
+    }
+  }
+}
+```
+
+**Note:** Replace `/path/to/your/project/` with the actual path to this Bitbucket MCP directory.
+
+**Important:** Credentials are loaded from the `.env` file in the project directory, NOT from the MCP config. This keeps your credentials secure and out of the MCP configuration.
+
 ### Running the MCP Server
 
 ```bash
