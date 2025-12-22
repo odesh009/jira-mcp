@@ -1,63 +1,51 @@
-# Bitbucket MCP Server
+# JIRA MCP Server 
 
-A comprehensive Model Context Protocol (MCP) server for Bitbucket integration, providing 27 tools to manage repositories, pull requests, branches, commits, issues, and workspaces.
+A comprehensive Model Context Protocol (MCP) server for JIRA integration, providing tools to manage projects, issues, sprints, boards, and more.
 
 ## Features
 
-### 🗂️ Repository Management (4 tools)
-- **get_repository** - Get detailed repository information
-- **list_repositories** - List all repositories in a workspace
-- **create_repository** - Create new repositories
-- **search_code** - Search code across repositories
+### 📁 Project Management (3 tools)
+- **list_projects** - List all accessible projects
+- **get_project** - Get detailed project information
+- **create_project** - Create new projects
 
-### 🔀 Pull Request Workflows (10 tools)
-- **list_pull_requests** - List PRs with state filtering
-- **get_pull_request** - Get detailed PR information
-- **create_pull_request** - Create new pull requests
-- **update_pull_request** - Update PR title/description
-- **merge_pull_request** - Merge PRs with different strategies
-- **decline_pull_request** - Decline pull requests
-- **approve_pull_request** - Approve pull requests
-- **unapprove_pull_request** - Remove PR approvals
-- **list_pr_comments** - List PR comments
-- **add_pr_comment** - Add comments to PRs
-
-### 🌿 Branch Operations (4 tools)
-- **list_branches** - List all repository branches
-- **get_branch** - Get branch details
-- **create_branch** - Create new branches
-- **delete_branch** - Delete branches
-
-### 📝 Commit Inspection (3 tools)
-- **list_commits** - List commits with optional branch filtering
-- **get_commit** - Get commit details
-- **get_commit_diff** - Get commit diffs
-
-### 🐛 Issue Tracking (4 tools)
-- **list_issues** - List repository issues
-- **get_issue** - Get issue details
+### 🎫 Issue Management (8 tools)
+- **search_issues** - Search issues using JQL (JIRA Query Language)
+- **get_issue** - Get detailed issue information
 - **create_issue** - Create new issues
 - **update_issue** - Update existing issues
+- **delete_issue** - Delete issues
+- **assign_issue** - Assign issues to users
+- **transition_issue** - Transition issues through workflow states
+- **add_comment** - Add comments to issues
 
-### 🏢 Workspace Management (2 tools)
-- **list_workspaces** - List accessible workspaces
-- **get_workspace** - Get workspace details
+### 🏃 Sprint Operations (4 tools)
+- **list_sprints** - List sprints for a board
+- **get_sprint** - Get sprint details
+- **create_sprint** - Create new sprints
+- **move_issues_to_sprint** - Move issues to a sprint
+
+### 📊 Board Operations (2 tools)
+- **list_boards** - List all boards
+- **get_board** - Get board details
+
+### 👤 User Operations (2 tools)
+- **search_users** - Search for users
+- **get_current_user** - Get current user information
 
 ## Installation
 
 ```bash
-cd bitbucket-mcp
+cd jira-mcp
 pip install -e ".[dev]"
 ```
 
 ## Configuration
 
-1. **Create a Bitbucket App Password:**
-   - Go to Bitbucket Settings → Personal settings → App passwords
-   - Create a new app password with these permissions:
-     - Repositories: Read, Write
-     - Pull requests: Read, Write
-     - Issues: Read, Write
+1. **Create a JIRA API Token:**
+   - Go to https://id.atlassian.com/manage-profile/security/api-tokens
+   - Click "Create API token"
+   - Give it a label and copy the token
 
 2. **Set up environment variables:**
    ```bash
@@ -74,7 +62,7 @@ Add this to your MCP configuration file (e.g., `~/.gemini/antigravity/mcp_config
 ```json
 {
   "mcpServers": {
-    "bitbucket-mcp": {
+    "jira-mcp": {
       "command": "/path/to/your/project/.venv/bin/python",
       "args": [
         "/path/to/your/project/src/server.py"
@@ -87,7 +75,7 @@ Add this to your MCP configuration file (e.g., `~/.gemini/antigravity/mcp_config
 }
 ```
 
-**Note:** Replace `/path/to/your/project/` with the actual path to this Bitbucket MCP directory.
+**Note:** Replace `/path/to/your/project/` with the actual path to this JIRA MCP directory.
 
 **Important:** Credentials are loaded from the `.env` file in the project directory, NOT from the MCP config. This keeps your credentials secure and out of the MCP configuration.
 
@@ -101,39 +89,51 @@ python -m src
 
 The server exposes tools through the MCP protocol. Here are some examples:
 
-**List repositories:**
+**Search issues:**
 ```json
 {
-  "tool": "list_repositories",
+  "tool": "search_issues",
   "arguments": {
-    "workspace": "my-workspace"
+    "jql": "project = PROJ AND status = 'In Progress'",
+    "max_results": 50
   }
 }
 ```
 
-**Create a pull request:**
+**Create an issue:**
 ```json
 {
-  "tool": "create_pull_request",
+  "tool": "create_issue",
   "arguments": {
-    "workspace": "my-workspace",
-    "repo_slug": "my-repo",
-    "title": "Add new feature",
-    "source_branch": "feature/new-feature",
-    "destination_branch": "main",
-    "description": "This PR adds a new feature"
+    "project_key": "PROJ",
+    "summary": "Fix login bug",
+    "issue_type": "Bug",
+    "description": "Users cannot log in with special characters in password",
+    "priority": "High"
   }
 }
 ```
 
-**Search code:**
+**Transition an issue:**
 ```json
 {
-  "tool": "search_code",
+  "tool": "transition_issue",
   "arguments": {
-    "workspace": "my-workspace",
-    "repo_slug": "my-repo",
-    "search_query": "function_name"
+    "issue_key": "PROJ-123",
+    "transition_name": "Done"
+  }
+}
+```
+
+**Create a sprint:**
+```json
+{
+  "tool": "create_sprint",
+  "arguments": {
+    "board_id": 1,
+    "name": "Sprint 10",
+    "start_date": "2024-01-01T00:00:00.000Z",
+    "end_date": "2024-01-14T23:59:59.000Z"
   }
 }
 ```

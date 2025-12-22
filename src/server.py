@@ -1,4 +1,4 @@
-"""Main MCP server implementation for Bitbucket."""
+"""Main MCP server implementation for JIRA."""
 
 import os
 import sys
@@ -14,21 +14,26 @@ from mcp.server import Server
 from mcp.types import Resource, Tool, TextContent
 from pydantic import AnyUrl
 
-from bitbucket_client import BitbucketClient
+# Handle both module and script execution
+try:
+    from .jira_client import JiraClient
+except ImportError:
+    from jira_client import JiraClient
 
 # Load environment variables from .env file
 load_dotenv()
 
 
-class BitbucketMCPServer:
-    """MCP Server for Bitbucket integration."""
+class JiraMCPServer:
+    """MCP Server for JIRA integration."""
 
     def __init__(self) -> None:
-        """Initialize the Bitbucket MCP server."""
-        self.server = Server("bitbucket-mcp")
-        self.bitbucket_client = BitbucketClient(
-            username=os.getenv("BITBUCKET_USERNAME", ""),
-            app_password=os.getenv("BITBUCKET_APP_PASSWORD", ""),
+        """Initialize the JIRA MCP server."""
+        self.server = Server("jira-mcp")
+        self.jira_client = JiraClient(
+            jira_url=os.getenv("JIRA_URL", ""),
+            email=os.getenv("JIRA_EMAIL", ""),
+            api_token=os.getenv("JIRA_API_TOKEN", ""),
         )
         self._setup_handlers()
 
@@ -37,340 +42,79 @@ class BitbucketMCPServer:
         
         @self.server.list_resources()
         async def list_resources() -> list[Resource]:
-            """List available Bitbucket resources."""
+            """List available JIRA resources."""
             return [
                 Resource(
-                    uri=AnyUrl("bitbucket://workspaces"),
-                    name="Workspaces",
+                    uri=AnyUrl("jira://projects"),
+                    name="Projects",
                     mimeType="application/json",
-                    description="List of accessible workspaces",
+                    description="List of accessible projects",
                 ),
                 Resource(
-                    uri=AnyUrl("bitbucket://repositories"),
-                    name="Repositories",
+                    uri=AnyUrl("jira://boards"),
+                    name="Boards",
                     mimeType="application/json",
-                    description="List of accessible repositories",
+                    description="List of accessible boards",
                 ),
             ]
 
         @self.server.list_tools()
         async def list_tools() -> list[Tool]:
-            """List available Bitbucket tools."""
+            """List available JIRA tools."""
             return [
-                # ==================== Repository Tools ====================
+                # ==================== Project Tools ====================
                 Tool(
-                    name="get_repository",
-                    description="Get detailed information about a specific repository",
+                    name="list_projects",
+                    description="List all accessible projects",
                     inputSchema={
                         "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                        },
-                        "required": ["workspace", "repo_slug"],
+                        "properties": {},
                     },
                 ),
                 Tool(
-                    name="list_repositories",
-                    description="List all repositories in a workspace",
+                    name="get_project",
+                    description="Get detailed information about a specific project",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
+                            "project_key": {"type": "string", "description": "Project key (e.g., 'PROJ')"},
                         },
-                        "required": ["workspace"],
+                        "required": ["project_key"],
                     },
                 ),
                 Tool(
-                    name="create_repository",
-                    description="Create a new repository",
+                    name="create_project",
+                    description="Create a new project",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "is_private": {"type": "boolean", "description": "Whether repository is private", "default": True},
-                            "description": {"type": "string", "description": "Repository description"},
-                            "project_key": {"type": "string", "description": "Project key to associate with"},
-                        },
-                        "required": ["workspace", "repo_slug"],
-                    },
-                ),
-                Tool(
-                    name="search_code",
-                    description="Search code in a repository",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "search_query": {"type": "string", "description": "Search query string"},
-                        },
-                        "required": ["workspace", "repo_slug", "search_query"],
-                    },
-                ),
-                
-                # ==================== Pull Request Tools ====================
-                Tool(
-                    name="list_pull_requests",
-                    description="List pull requests for a repository",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "state": {
+                            "key": {"type": "string", "description": "Project key (e.g., 'PROJ')"},
+                            "name": {"type": "string", "description": "Project name"},
+                            "project_type_key": {
                                 "type": "string",
-                                "enum": ["OPEN", "MERGED", "DECLINED"],
-                                "description": "Filter by PR state",
+                                "enum": ["software", "business", "service_desk"],
+                                "description": "Project type",
+                                "default": "software",
                             },
+                            "lead_account_id": {"type": "string", "description": "Account ID of project lead"},
+                            "description": {"type": "string", "description": "Project description"},
                         },
-                        "required": ["workspace", "repo_slug"],
-                    },
-                ),
-                Tool(
-                    name="get_pull_request",
-                    description="Get detailed information about a specific pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="create_pull_request",
-                    description="Create a new pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "title": {"type": "string", "description": "PR title"},
-                            "source_branch": {"type": "string", "description": "Source branch name"},
-                            "destination_branch": {"type": "string", "description": "Destination branch name"},
-                            "description": {"type": "string", "description": "PR description"},
-                            "close_source_branch": {"type": "boolean", "description": "Close source branch after merge", "default": False},
-                        },
-                        "required": ["workspace", "repo_slug", "title", "source_branch", "destination_branch"],
-                    },
-                ),
-                Tool(
-                    name="update_pull_request",
-                    description="Update a pull request's title or description",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                            "title": {"type": "string", "description": "New title"},
-                            "description": {"type": "string", "description": "New description"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="merge_pull_request",
-                    description="Merge a pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                            "merge_strategy": {
-                                "type": "string",
-                                "enum": ["merge_commit", "squash", "fast_forward"],
-                                "description": "Merge strategy",
-                                "default": "merge_commit",
-                            },
-                            "message": {"type": "string", "description": "Merge commit message"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="decline_pull_request",
-                    description="Decline a pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="approve_pull_request",
-                    description="Approve a pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="unapprove_pull_request",
-                    description="Remove approval from a pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="list_pr_comments",
-                    description="List comments on a pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id"],
-                    },
-                ),
-                Tool(
-                    name="add_pr_comment",
-                    description="Add a comment to a pull request",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "pr_id": {"type": "integer", "description": "Pull request ID"},
-                            "content": {"type": "string", "description": "Comment content"},
-                        },
-                        "required": ["workspace", "repo_slug", "pr_id", "content"],
-                    },
-                ),
-                
-                # ==================== Branch Tools ====================
-                Tool(
-                    name="list_branches",
-                    description="List all branches in a repository",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                        },
-                        "required": ["workspace", "repo_slug"],
-                    },
-                ),
-                Tool(
-                    name="get_branch",
-                    description="Get detailed information about a specific branch",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "branch_name": {"type": "string", "description": "Branch name"},
-                        },
-                        "required": ["workspace", "repo_slug", "branch_name"],
-                    },
-                ),
-                Tool(
-                    name="create_branch",
-                    description="Create a new branch",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "branch_name": {"type": "string", "description": "New branch name"},
-                            "target": {"type": "string", "description": "Target commit hash or branch name"},
-                        },
-                        "required": ["workspace", "repo_slug", "branch_name", "target"],
-                    },
-                ),
-                Tool(
-                    name="delete_branch",
-                    description="Delete a branch",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "branch_name": {"type": "string", "description": "Branch name to delete"},
-                        },
-                        "required": ["workspace", "repo_slug", "branch_name"],
-                    },
-                ),
-                
-                # ==================== Commit Tools ====================
-                Tool(
-                    name="list_commits",
-                    description="List commits in a repository",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "branch": {"type": "string", "description": "Optional branch name to filter commits"},
-                        },
-                        "required": ["workspace", "repo_slug"],
-                    },
-                ),
-                Tool(
-                    name="get_commit",
-                    description="Get detailed information about a specific commit",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "commit_hash": {"type": "string", "description": "Commit hash"},
-                        },
-                        "required": ["workspace", "repo_slug", "commit_hash"],
-                    },
-                ),
-                Tool(
-                    name="get_commit_diff",
-                    description="Get the diff for a specific commit",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "commit_hash": {"type": "string", "description": "Commit hash"},
-                        },
-                        "required": ["workspace", "repo_slug", "commit_hash"],
+                        "required": ["key", "name"],
                     },
                 ),
                 
                 # ==================== Issue Tools ====================
                 Tool(
-                    name="list_issues",
-                    description="List issues in a repository",
+                    name="search_issues",
+                    description="Search for issues using JQL (JIRA Query Language)",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "state": {
-                                "type": "string",
-                                "enum": ["new", "open", "resolved", "on hold", "invalid", "duplicate", "wontfix", "closed"],
-                                "description": "Filter by issue state",
-                            },
+                            "jql": {"type": "string", "description": "JQL query string"},
+                            "max_results": {"type": "integer", "description": "Maximum number of results", "default": 50},
+                            "start_at": {"type": "integer", "description": "Starting index for pagination", "default": 0},
                         },
-                        "required": ["workspace", "repo_slug"],
+                        "required": ["jql"],
                     },
                 ),
                 Tool(
@@ -379,11 +123,9 @@ class BitbucketMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "issue_id": {"type": "integer", "description": "Issue ID"},
+                            "issue_key": {"type": "string", "description": "Issue key (e.g., 'PROJ-123')"},
                         },
-                        "required": ["workspace", "repo_slug", "issue_id"],
+                        "required": ["issue_key"],
                     },
                 ),
                 Tool(
@@ -392,24 +134,15 @@ class BitbucketMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "title": {"type": "string", "description": "Issue title"},
+                            "project_key": {"type": "string", "description": "Project key"},
+                            "summary": {"type": "string", "description": "Issue summary"},
+                            "issue_type": {"type": "string", "description": "Issue type (e.g., 'Bug', 'Task', 'Story')"},
                             "description": {"type": "string", "description": "Issue description"},
-                            "kind": {
-                                "type": "string",
-                                "enum": ["bug", "enhancement", "proposal", "task"],
-                                "description": "Issue kind",
-                                "default": "bug",
-                            },
-                            "priority": {
-                                "type": "string",
-                                "enum": ["trivial", "minor", "major", "critical", "blocker"],
-                                "description": "Issue priority",
-                                "default": "major",
-                            },
+                            "priority": {"type": "string", "description": "Priority (e.g., 'High', 'Medium', 'Low')"},
+                            "assignee_id": {"type": "string", "description": "Account ID of assignee"},
+                            "labels": {"type": "array", "items": {"type": "string"}, "description": "List of labels"},
                         },
-                        "required": ["workspace", "repo_slug", "title"],
+                        "required": ["project_key", "summary", "issue_type"],
                     },
                 ),
                 Tool(
@@ -418,37 +151,155 @@ class BitbucketMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
-                            "repo_slug": {"type": "string", "description": "Repository slug"},
-                            "issue_id": {"type": "integer", "description": "Issue ID"},
-                            "title": {"type": "string", "description": "New title"},
+                            "issue_key": {"type": "string", "description": "Issue key"},
+                            "summary": {"type": "string", "description": "New summary"},
                             "description": {"type": "string", "description": "New description"},
-                            "state": {"type": "string", "description": "New state"},
-                            "kind": {"type": "string", "description": "New kind"},
                             "priority": {"type": "string", "description": "New priority"},
+                            "assignee_id": {"type": "string", "description": "New assignee account ID"},
+                            "labels": {"type": "array", "items": {"type": "string"}, "description": "New labels"},
                         },
-                        "required": ["workspace", "repo_slug", "issue_id"],
+                        "required": ["issue_key"],
+                    },
+                ),
+                Tool(
+                    name="delete_issue",
+                    description="Delete an issue",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "issue_key": {"type": "string", "description": "Issue key"},
+                        },
+                        "required": ["issue_key"],
+                    },
+                ),
+                Tool(
+                    name="assign_issue",
+                    description="Assign an issue to a user",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "issue_key": {"type": "string", "description": "Issue key"},
+                            "assignee_id": {"type": "string", "description": "Account ID of assignee"},
+                        },
+                        "required": ["issue_key", "assignee_id"],
+                    },
+                ),
+                Tool(
+                    name="transition_issue",
+                    description="Transition an issue to a new status",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "issue_key": {"type": "string", "description": "Issue key"},
+                            "transition_id": {"type": "string", "description": "Transition ID (if known)"},
+                            "transition_name": {"type": "string", "description": "Transition name (e.g., 'Done', 'In Progress')"},
+                        },
+                        "required": ["issue_key"],
+                    },
+                ),
+                Tool(
+                    name="add_comment",
+                    description="Add a comment to an issue",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "issue_key": {"type": "string", "description": "Issue key"},
+                            "comment": {"type": "string", "description": "Comment text"},
+                        },
+                        "required": ["issue_key", "comment"],
                     },
                 ),
                 
-                # ==================== Workspace Tools ====================
+                # ==================== Sprint Tools ====================
                 Tool(
-                    name="list_workspaces",
-                    description="List all accessible workspaces",
+                    name="list_sprints",
+                    description="List sprints for a board",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "board_id": {"type": "integer", "description": "Board ID"},
+                        },
+                        "required": ["board_id"],
+                    },
+                ),
+                Tool(
+                    name="get_sprint",
+                    description="Get detailed information about a specific sprint",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "sprint_id": {"type": "integer", "description": "Sprint ID"},
+                        },
+                        "required": ["sprint_id"],
+                    },
+                ),
+                Tool(
+                    name="create_sprint",
+                    description="Create a new sprint",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "board_id": {"type": "integer", "description": "Board ID"},
+                            "name": {"type": "string", "description": "Sprint name"},
+                            "start_date": {"type": "string", "description": "Start date (ISO 8601 format)"},
+                            "end_date": {"type": "string", "description": "End date (ISO 8601 format)"},
+                            "goal": {"type": "string", "description": "Sprint goal"},
+                        },
+                        "required": ["board_id", "name"],
+                    },
+                ),
+                Tool(
+                    name="move_issues_to_sprint",
+                    description="Move issues to a sprint",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "sprint_id": {"type": "integer", "description": "Sprint ID"},
+                            "issue_keys": {"type": "array", "items": {"type": "string"}, "description": "List of issue keys"},
+                        },
+                        "required": ["sprint_id", "issue_keys"],
+                    },
+                ),
+                
+                # ==================== Board Tools ====================
+                Tool(
+                    name="list_boards",
+                    description="List all boards",
                     inputSchema={
                         "type": "object",
                         "properties": {},
                     },
                 ),
                 Tool(
-                    name="get_workspace",
-                    description="Get detailed information about a specific workspace",
+                    name="get_board",
+                    description="Get detailed information about a specific board",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "workspace": {"type": "string", "description": "Workspace ID"},
+                            "board_id": {"type": "integer", "description": "Board ID"},
                         },
-                        "required": ["workspace"],
+                        "required": ["board_id"],
+                    },
+                ),
+                
+                # ==================== User Tools ====================
+                Tool(
+                    name="search_users",
+                    description="Search for users",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"},
+                        },
+                        "required": ["query"],
+                    },
+                ),
+                Tool(
+                    name="get_current_user",
+                    description="Get current user information",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
                     },
                 ),
             ]
@@ -459,149 +310,94 @@ class BitbucketMCPServer:
             try:
                 result = None
                 
-                # Repository tools
-                if name == "get_repository":
-                    result = await self.bitbucket_client.get_repository(
-                        arguments["workspace"], arguments["repo_slug"]
-                    )
-                elif name == "list_repositories":
-                    result = await self.bitbucket_client.list_repositories(arguments["workspace"])
-                elif name == "create_repository":
-                    result = await self.bitbucket_client.create_repository(
-                        arguments["workspace"],
-                        arguments["repo_slug"],
-                        arguments.get("is_private", True),
+                # Project tools
+                if name == "list_projects":
+                    result = await self.jira_client.list_projects()
+                elif name == "get_project":
+                    result = await self.jira_client.get_project(arguments["project_key"])
+                elif name == "create_project":
+                    result = await self.jira_client.create_project(
+                        arguments["key"],
+                        arguments["name"],
+                        arguments.get("project_type_key", "software"),
+                        arguments.get("lead_account_id"),
                         arguments.get("description"),
-                        arguments.get("project_key"),
-                    )
-                elif name == "search_code":
-                    result = await self.bitbucket_client.search_code(
-                        arguments["workspace"], arguments["repo_slug"], arguments["search_query"]
-                    )
-                
-                # Pull request tools
-                elif name == "list_pull_requests":
-                    result = await self.bitbucket_client.list_pull_requests(
-                        arguments["workspace"], arguments["repo_slug"], arguments.get("state")
-                    )
-                elif name == "get_pull_request":
-                    result = await self.bitbucket_client.get_pull_request(
-                        arguments["workspace"], arguments["repo_slug"], arguments["pr_id"]
-                    )
-                elif name == "create_pull_request":
-                    result = await self.bitbucket_client.create_pull_request(
-                        arguments["workspace"],
-                        arguments["repo_slug"],
-                        arguments["title"],
-                        arguments["source_branch"],
-                        arguments["destination_branch"],
-                        arguments.get("description"),
-                        arguments.get("close_source_branch", False),
-                    )
-                elif name == "update_pull_request":
-                    result = await self.bitbucket_client.update_pull_request(
-                        arguments["workspace"],
-                        arguments["repo_slug"],
-                        arguments["pr_id"],
-                        arguments.get("title"),
-                        arguments.get("description"),
-                    )
-                elif name == "merge_pull_request":
-                    result = await self.bitbucket_client.merge_pull_request(
-                        arguments["workspace"],
-                        arguments["repo_slug"],
-                        arguments["pr_id"],
-                        arguments.get("merge_strategy", "merge_commit"),
-                        arguments.get("message"),
-                    )
-                elif name == "decline_pull_request":
-                    result = await self.bitbucket_client.decline_pull_request(
-                        arguments["workspace"], arguments["repo_slug"], arguments["pr_id"]
-                    )
-                elif name == "approve_pull_request":
-                    result = await self.bitbucket_client.approve_pull_request(
-                        arguments["workspace"], arguments["repo_slug"], arguments["pr_id"]
-                    )
-                elif name == "unapprove_pull_request":
-                    result = await self.bitbucket_client.unapprove_pull_request(
-                        arguments["workspace"], arguments["repo_slug"], arguments["pr_id"]
-                    )
-                elif name == "list_pr_comments":
-                    result = await self.bitbucket_client.list_pr_comments(
-                        arguments["workspace"], arguments["repo_slug"], arguments["pr_id"]
-                    )
-                elif name == "add_pr_comment":
-                    result = await self.bitbucket_client.add_pr_comment(
-                        arguments["workspace"], arguments["repo_slug"], arguments["pr_id"], arguments["content"]
-                    )
-                
-                # Branch tools
-                elif name == "list_branches":
-                    result = await self.bitbucket_client.list_branches(
-                        arguments["workspace"], arguments["repo_slug"]
-                    )
-                elif name == "get_branch":
-                    result = await self.bitbucket_client.get_branch(
-                        arguments["workspace"], arguments["repo_slug"], arguments["branch_name"]
-                    )
-                elif name == "create_branch":
-                    result = await self.bitbucket_client.create_branch(
-                        arguments["workspace"], arguments["repo_slug"], arguments["branch_name"], arguments["target"]
-                    )
-                elif name == "delete_branch":
-                    result = await self.bitbucket_client.delete_branch(
-                        arguments["workspace"], arguments["repo_slug"], arguments["branch_name"]
-                    )
-                
-                # Commit tools
-                elif name == "list_commits":
-                    result = await self.bitbucket_client.list_commits(
-                        arguments["workspace"], arguments["repo_slug"], arguments.get("branch")
-                    )
-                elif name == "get_commit":
-                    result = await self.bitbucket_client.get_commit(
-                        arguments["workspace"], arguments["repo_slug"], arguments["commit_hash"]
-                    )
-                elif name == "get_commit_diff":
-                    result = await self.bitbucket_client.get_commit_diff(
-                        arguments["workspace"], arguments["repo_slug"], arguments["commit_hash"]
                     )
                 
                 # Issue tools
-                elif name == "list_issues":
-                    result = await self.bitbucket_client.list_issues(
-                        arguments["workspace"], arguments["repo_slug"], arguments.get("state")
+                elif name == "search_issues":
+                    result = await self.jira_client.search_issues(
+                        arguments["jql"],
+                        arguments.get("max_results", 50),
+                        arguments.get("start_at", 0),
                     )
                 elif name == "get_issue":
-                    result = await self.bitbucket_client.get_issue(
-                        arguments["workspace"], arguments["repo_slug"], arguments["issue_id"]
-                    )
+                    result = await self.jira_client.get_issue(arguments["issue_key"])
                 elif name == "create_issue":
-                    result = await self.bitbucket_client.create_issue(
-                        arguments["workspace"],
-                        arguments["repo_slug"],
-                        arguments["title"],
+                    result = await self.jira_client.create_issue(
+                        arguments["project_key"],
+                        arguments["summary"],
+                        arguments["issue_type"],
                         arguments.get("description"),
-                        arguments.get("kind", "bug"),
-                        arguments.get("priority", "major"),
+                        arguments.get("priority"),
+                        arguments.get("assignee_id"),
+                        arguments.get("labels"),
                     )
                 elif name == "update_issue":
-                    result = await self.bitbucket_client.update_issue(
-                        arguments["workspace"],
-                        arguments["repo_slug"],
-                        arguments["issue_id"],
-                        arguments.get("title"),
+                    result = await self.jira_client.update_issue(
+                        arguments["issue_key"],
+                        arguments.get("summary"),
                         arguments.get("description"),
-                        arguments.get("state"),
-                        arguments.get("kind"),
                         arguments.get("priority"),
+                        arguments.get("assignee_id"),
+                        arguments.get("labels"),
+                    )
+                elif name == "delete_issue":
+                    result = await self.jira_client.delete_issue(arguments["issue_key"])
+                elif name == "assign_issue":
+                    result = await self.jira_client.assign_issue(
+                        arguments["issue_key"], arguments["assignee_id"]
+                    )
+                elif name == "transition_issue":
+                    result = await self.jira_client.transition_issue(
+                        arguments["issue_key"],
+                        arguments.get("transition_id"),
+                        arguments.get("transition_name"),
+                    )
+                elif name == "add_comment":
+                    result = await self.jira_client.add_comment(
+                        arguments["issue_key"], arguments["comment"]
                     )
                 
-                # Workspace tools
-                elif name == "list_workspaces":
-                    result = await self.bitbucket_client.list_workspaces()
-                elif name == "get_workspace":
-                    result = await self.bitbucket_client.get_workspace(arguments["workspace"])
+                # Sprint tools
+                elif name == "list_sprints":
+                    result = await self.jira_client.list_sprints(arguments["board_id"])
+                elif name == "get_sprint":
+                    result = await self.jira_client.get_sprint(arguments["sprint_id"])
+                elif name == "create_sprint":
+                    result = await self.jira_client.create_sprint(
+                        arguments["board_id"],
+                        arguments["name"],
+                        arguments.get("start_date"),
+                        arguments.get("end_date"),
+                        arguments.get("goal"),
+                    )
+                elif name == "move_issues_to_sprint":
+                    result = await self.jira_client.move_issues_to_sprint(
+                        arguments["sprint_id"], arguments["issue_keys"]
+                    )
+                
+                # Board tools
+                elif name == "list_boards":
+                    result = await self.jira_client.list_boards()
+                elif name == "get_board":
+                    result = await self.jira_client.get_board(arguments["board_id"])
+                
+                # User tools
+                elif name == "search_users":
+                    result = await self.jira_client.search_users(arguments["query"])
+                elif name == "get_current_user":
+                    result = await self.jira_client.get_current_user()
                 
                 else:
                     return [TextContent(type="text", text=f"Unknown tool: {name}")]
@@ -627,5 +423,5 @@ class BitbucketMCPServer:
 if __name__ == "__main__":
     import asyncio
     
-    server = BitbucketMCPServer()
+    server = JiraMCPServer()
     asyncio.run(server.run())

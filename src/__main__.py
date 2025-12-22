@@ -1,13 +1,13 @@
-"""Entry point for running the Bitbucket MCP server."""
+"""Entry point for running the JIRA MCP server."""
 
 import asyncio
 
-from .server import BitbucketMCPServer
+from .server import JiraMCPServer
 
 
 async def main() -> None:
     """Main entry point."""
-    server = BitbucketMCPServer()
+    server = JiraMCPServer()
     await server.run()
 
 
