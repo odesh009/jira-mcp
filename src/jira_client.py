@@ -114,26 +114,33 @@ class JiraClient:
     # ==================== Issue Operations ====================
 
     async def search_issues(
-        self, jql: str, max_results: int = 50, start_at: int = 0
+        self, jql: str, max_results: int = 50, start_at: int = 0,
+        fields: Optional[list[str]] = None
     ) -> dict[str, Any]:
         """Search for issues using JQL.
         
         Args:
             jql: JQL query string
             max_results: Maximum number of results
-            start_at: Starting index for pagination
+            start_at: Starting index for pagination (NOTE: not supported by new API, kept for compatibility)
+            fields: Optional list of fields to return (e.g., ["summary", "status", "priority"])
             
         Returns:
             Search results
         """
-        params = {
+        data: dict[str, Any] = {
             "jql": jql,
             "maxResults": max_results,
-            "startAt": start_at,
         }
-        response = await self.client.get(
+        # Note: startAt is not supported by the new /search/jql endpoint
+        # The API uses cursor-based pagination instead
+        
+        if fields:
+            data["fields"] = fields
+        
+        response = await self.client.post(
             f"{self.jira_url}/rest/api/3/search/jql",
-            params=params,
+            json=data,
         )
         response.raise_for_status()
         return response.json()
@@ -223,6 +230,10 @@ class JiraClient:
         priority: Optional[str] = None,
         assignee_id: Optional[str] = None,
         labels: Optional[list[str]] = None,
+        story_points: Optional[float] = None,
+        sprint: Optional[list[str]] = None,
+        acceptance_criteria: Optional[str] = None,
+        technical_requirements: Optional[str] = None,
     ) -> dict[str, Any]:
         """Update an issue.
         
@@ -233,6 +244,10 @@ class JiraClient:
             priority: New priority
             assignee_id: New assignee account ID
             labels: New labels
+            story_points: Story points (number)
+            sprint: Sprint labels (array of strings)
+            acceptance_criteria: Acceptance criteria text
+            technical_requirements: Technical requirements text
             
         Returns:
             Update status
@@ -256,8 +271,39 @@ class JiraClient:
             fields["priority"] = {"name": priority}
         if assignee_id:
             fields["assignee"] = {"id": assignee_id}
-        if labels:
+        if labels is not None:
             fields["labels"] = labels
+        
+        # Custom fields
+        if story_points is not None:
+            fields["customfield_10105"] = story_points
+        if sprint is not None:
+            # Sprint is a labels field - can't contain spaces
+            fields["customfield_10106"] = sprint
+        if acceptance_criteria is not None:
+            # Acceptance Criteria requires Atlassian Document Format
+            fields["customfield_10103"] = {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": acceptance_criteria}],
+                    }
+                ],
+            }
+        if technical_requirements is not None:
+            # Technical Requirements requires Atlassian Document Format
+            fields["customfield_10104"] = {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"type": "text", "text": technical_requirements}],
+                    }
+                ],
+            }
             
         data = {"fields": fields}
         response = await self.client.put(
@@ -363,6 +409,22 @@ class JiraClient:
         )
         response.raise_for_status()
         return response.json()
+
+    async def delete_comment(self, issue_key: str, comment_id: str) -> dict[str, Any]:
+        """Delete a comment from an issue.
+        
+        Args:
+            issue_key: Issue key
+            comment_id: Comment ID to delete
+            
+        Returns:
+            Deletion status
+        """
+        response = await self.client.delete(
+            f"{self.jira_url}/rest/api/3/issue/{issue_key}/comment/{comment_id}"
+        )
+        response.raise_for_status()
+        return {"status": "deleted", "issue_key": issue_key, "comment_id": comment_id}
 
     # ==================== Sprint Operations ====================
 
@@ -504,6 +566,37 @@ class JiraClient:
         response = await self.client.get(f"{self.jira_url}/rest/api/3/myself")
         response.raise_for_status()
         return response.json()
+
+    # ==================== Field Operations ====================
+
+    async def get_custom_fields(self) -> dict[str, Any]:
+        """Get all custom fields with their names and IDs.
+        
+        Returns:
+            List of all fields including custom fields with their metadata
+        """
+        response = await self.client.get(f"{self.jira_url}/rest/api/3/field")
+        response.raise_for_status()
+        fields = response.json()
+        
+        # Filter and format custom fields for easier reading
+        custom_fields = []
+        for field in fields:
+            if field.get('custom', False):
+                custom_fields.append({
+                    'id': field.get('id'),
+                    'name': field.get('name'),
+                    'description': field.get('description', ''),
+                    'type': field.get('schema', {}).get('type', 'unknown'),
+                    'custom': field.get('custom', False),
+                })
+        
+        return {
+            'total_fields': len(fields),
+            'custom_fields_count': len(custom_fields),
+            'custom_fields': custom_fields,
+            'all_fields': fields  # Include all fields for reference
+        }
 
     # ==================== Utility Methods ====================
 

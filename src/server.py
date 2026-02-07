@@ -20,8 +20,9 @@ try:
 except ImportError:
     from jira_client import JiraClient
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from .env file in the project root
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 
 class JiraMCPServer:
@@ -157,6 +158,10 @@ class JiraMCPServer:
                             "priority": {"type": "string", "description": "New priority"},
                             "assignee_id": {"type": "string", "description": "New assignee account ID"},
                             "labels": {"type": "array", "items": {"type": "string"}, "description": "New labels"},
+                            "story_points": {"type": "number", "description": "Story points (e.g., 1, 2, 3, 5, 8)"},
+                            "sprint": {"type": "array", "items": {"type": "string"}, "description": "Sprint labels"},
+                            "acceptance_criteria": {"type": "string", "description": "Acceptance criteria text"},
+                            "technical_requirements": {"type": "string", "description": "Technical requirements text"},
                         },
                         "required": ["issue_key"],
                     },
@@ -207,6 +212,18 @@ class JiraMCPServer:
                             "comment": {"type": "string", "description": "Comment text"},
                         },
                         "required": ["issue_key", "comment"],
+                    },
+                ),
+                Tool(
+                    name="delete_comment",
+                    description="Delete a comment from an issue",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "issue_key": {"type": "string", "description": "Issue key"},
+                            "comment_id": {"type": "string", "description": "Comment ID to delete"},
+                        },
+                        "required": ["issue_key", "comment_id"],
                     },
                 ),
                 
@@ -302,6 +319,16 @@ class JiraMCPServer:
                         "properties": {},
                     },
                 ),
+                
+                # ==================== Field Tools ====================
+                Tool(
+                    name="get_custom_fields",
+                    description="Get all custom fields with their names, IDs, and metadata",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {},
+                    },
+                ),
             ]
 
         @self.server.call_tool()
@@ -351,6 +378,10 @@ class JiraMCPServer:
                         arguments.get("priority"),
                         arguments.get("assignee_id"),
                         arguments.get("labels"),
+                        arguments.get("story_points"),
+                        arguments.get("sprint"),
+                        arguments.get("acceptance_criteria"),
+                        arguments.get("technical_requirements"),
                     )
                 elif name == "delete_issue":
                     result = await self.jira_client.delete_issue(arguments["issue_key"])
@@ -367,6 +398,10 @@ class JiraMCPServer:
                 elif name == "add_comment":
                     result = await self.jira_client.add_comment(
                         arguments["issue_key"], arguments["comment"]
+                    )
+                elif name == "delete_comment":
+                    result = await self.jira_client.delete_comment(
+                        arguments["issue_key"], arguments["comment_id"]
                     )
                 
                 # Sprint tools
@@ -398,6 +433,10 @@ class JiraMCPServer:
                     result = await self.jira_client.search_users(arguments["query"])
                 elif name == "get_current_user":
                     result = await self.jira_client.get_current_user()
+                
+                # Field tools
+                elif name == "get_custom_fields":
+                    result = await self.jira_client.get_custom_fields()
                 
                 else:
                     return [TextContent(type="text", text=f"Unknown tool: {name}")]
