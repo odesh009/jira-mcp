@@ -9,7 +9,7 @@ A comprehensive Model Context Protocol (MCP) server for JIRA integration, provid
 - **get_project** - Get detailed project information
 - **create_project** - Create new projects
 
-### 🎫 Issue Management (8 tools)
+### 🎫 Issue Management (10 tools)
 - **search_issues** - Search issues using JQL (JIRA Query Language)
 - **get_issue** - Get detailed issue information
 - **create_issue** - Create new issues
@@ -18,6 +18,8 @@ A comprehensive Model Context Protocol (MCP) server for JIRA integration, provid
 - **assign_issue** - Assign issues to users
 - **transition_issue** - Transition issues through workflow states
 - **add_comment** - Add comments to issues
+- **delete_comment** - Delete comments from issues
+- **get_custom_fields** - Get all custom fields with their IDs and names
 
 ### 🏃 Sprint Operations (4 tools)
 - **list_sprints** - List sprints for a board
